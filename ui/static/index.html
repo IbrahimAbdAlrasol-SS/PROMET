@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PROMET — Android Security Analysis</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ═══════════════════════════════ HEADER ═══════════════════════════════════ -->
+<header id="header">
+  <div class="header-left">
+    <div class="logo">
+      <span class="logo-icon">⬡</span>
+      <span class="logo-text">PROMET</span>
+      <span class="logo-sub">Android RE</span>
+    </div>
+  </div>
+  <div class="header-center">
+    <div id="phase-bar">
+      <span class="phase-label">Phase</span>
+      <div id="phase-track">
+        <div id="phase-fill"></div>
+      </div>
+      <span id="phase-name" class="phase-name">Ready</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <div id="status-dot" class="status-dot offline" title="Disconnected"></div>
+    <button class="icon-btn" id="btn-clear" title="Clear conversation">⟳</button>
+    <button class="icon-btn" id="btn-settings" title="Settings">⚙</button>
+  </div>
+</header>
+
+<!-- ═════════════════════════════ MAIN LAYOUT ════════════════════════════════ -->
+<div id="layout">
+
+  <!-- PHASE SIDEBAR -->
+  <aside id="sidebar">
+    <div class="sidebar-title">PHASES</div>
+    <ul id="phase-list"></ul>
+  </aside>
+
+  <!-- CHAT PANEL -->
+  <main id="chat-panel">
+    <div id="messages"></div>
+
+    <!-- APK DROP OVERLAY -->
+    <div id="drop-overlay">
+      <div class="drop-inner">
+        <div class="drop-icon">📦</div>
+        <div class="drop-text">Drop APK here</div>
+      </div>
+    </div>
+  </main>
+
+</div>
+
+<!-- ═══════════════════════════ INPUT BAR ════════════════════════════════════ -->
+<footer id="input-bar">
+  <div id="apk-badge" class="hidden">
+    <span id="apk-badge-name"></span>
+    <button id="apk-remove" title="Remove APK">×</button>
+  </div>
+  <div id="input-row">
+    <label id="btn-attach" title="Attach APK file" class="icon-btn">
+      📎
+      <input type="file" id="file-input" accept=".apk" hidden />
+    </label>
+    <textarea
+      id="user-input"
+      placeholder="Message PROMET… or drop an APK to begin"
+      rows="1"
+      autocomplete="off"
+      spellcheck="false"
+    ></textarea>
+    <button id="btn-send" class="send-btn" title="Send (Enter)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+        <line x1="22" y1="2" x2="11" y2="13"/>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+      </svg>
+    </button>
+  </div>
+</footer>
+
+<!-- ═══════════════════════════ SETTINGS MODAL ═══════════════════════════════ -->
+<div id="settings-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Settings</h2>
+      <button class="modal-close" id="settings-close">×</button>
+    </div>
+    <div class="modal-body">
+      <label class="field-label">Anthropic API Key</label>
+      <div class="field-row">
+        <input type="password" id="api-key-input" placeholder="sk-ant-…" autocomplete="off" />
+        <button class="btn-primary" id="api-key-save">Save</button>
+      </div>
+      <div id="api-key-status" class="field-hint"></div>
+
+      <label class="field-label mt">Shell</label>
+      <input type="text" id="shell-input" placeholder="bash" value="bash" />
+      <p class="field-hint">e.g. <code>bash</code>, <code>C:/Program Files/Git/bin/bash.exe</code></p>
+
+      <label class="field-label mt">Model</label>
+      <input type="text" id="model-input" placeholder="claude-opus-4-8" value="claude-opus-4-8" />
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
