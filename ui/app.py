@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import uuid
@@ -157,6 +158,31 @@ def _make_client() -> Optional[anthropic.AsyncAnthropic]:
 
 _client: Optional[anthropic.AsyncAnthropic] = _make_client()
 
+# ── Claude Code CLI detection ──────────────────────────────────────────────────
+def _find_claude_bin() -> str:
+    """Locate the claude CLI binary on this machine."""
+    forced = os.environ.get("PROMET_CLAUDE_BIN", "").strip()
+    if forced:
+        return forced
+    if sys.platform == "win32":
+        user = os.environ.get("USERNAME", "")
+        candidates = [
+            rf"C:\Users\{user}\AppData\Roaming\npm\claude.cmd",
+            rf"C:\Users\{user}\scoop\shims\claude.cmd",
+            rf"C:\Users\{user}\AppData\Local\Programs\claude\claude.cmd",
+            r"C:\Program Files\nodejs\claude.cmd",
+            "claude.cmd",
+            "claude",
+        ]
+        for c in candidates:
+            if shutil.which(c) or Path(c).exists():
+                return c
+        return "claude.cmd"
+    found = shutil.which("claude")
+    return found or "claude"
+
+CLAUDE_BIN: str = _find_claude_bin()
+
 # ── Session storage (in-memory) ────────────────────────────────────────────────
 _sessions: dict[str, list] = {}
 
@@ -217,15 +243,94 @@ async def _exec_write_file(path: str, content: str, mode: str = "write") -> str:
         return f"[write_file error: {exc}]"
 
 
-# ── Claude streaming loop ──────────────────────────────────────────────────────
-async def _run_claude(ws: WebSocket, session_id: str) -> None:
-    global _client
-    if not _client:
+# ── Claude Code CLI mode (no API key needed) ───────────────────────────────────
+async def _run_claude_cli(ws: WebSocket, session_id: str) -> None:
+    """Use the installed claude CLI binary — works with existing claude.ai login."""
+    conversation = _sessions.get(session_id, [])
+    if not conversation:
+        return
+
+    # Build prompt: system instructions + conversation history
+    system_block = (
+        "You are PROMET, an expert Android security researcher.\n"
+        "Follow the phased workflow in AGENTS.md and WORKFLOW.md in your working directory.\n"
+        "Use bash tool to run real commands on this machine. Never mock or simulate output.\n"
+        "Announce each phase you enter, e.g. '## Phase 3: Static Triage'.\n"
+        "Write findings to workspace incrementally.\n\n"
+    )
+
+    history_lines = []
+    for m in conversation[:-1]:
+        role = "User" if m["role"] == "user" else "Assistant"
+        body = m["content"] if isinstance(m["content"], str) else json.dumps(m["content"])
+        history_lines.append(f"{role}: {body}")
+
+    last_msg = conversation[-1]["content"] if conversation else ""
+    sep = "\n---\n" if history_lines else ""
+    full_prompt = system_block + "\n".join(history_lines) + sep + f"User: {last_msg}"
+
+    cmd = [
+        CLAUDE_BIN,
+        "--print",
+        "--dangerously-skip-permissions",
+        "--allowedTools", "Bash,Read,Write,Edit,Glob,Grep",
+        full_prompt,
+    ]
+
+    try:
+        await ws.send_json({"type": "tool_start", "id": "cli-session", "name": "claude-cli"})
+        await ws.send_json({"type": "tool_exec",  "id": "cli-session", "name": "claude-cli",
+                            "input": {"command": f"claude --print [prompt {len(full_prompt)} chars]"}})
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(PROMPTS_DIR),
+        )
+
+        chunks: list[str] = []
+        phase_sent: set[int] = set()
+
+        async def _drain():
+            async for raw in proc.stdout:
+                line = raw.decode("utf-8", errors="replace")
+                chunks.append(line)
+                await ws.send_json({"type": "tool_output", "content": line})
+                phase = _detect_phase(line)
+                if phase is not None and phase not in phase_sent:
+                    phase_sent.add(phase)
+                    await ws.send_json({"type": "phase", "number": phase})
+
+        try:
+            await asyncio.wait_for(asyncio.gather(_drain(), proc.wait()), timeout=600)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await ws.send_json({"type": "tool_output", "content": "\n[Session timeout — 10 minutes]\n"})
+
+        full_response = "".join(chunks)
+        conversation.append({"role": "assistant", "content": full_response})
+        _sessions[session_id] = conversation
+
+        await ws.send_json({"type": "tool_result", "id": "cli-session", "name": "claude-cli"})
+        await ws.send_json({"type": "done"})
+
+    except FileNotFoundError:
         await ws.send_json({
             "type": "error",
-            "message": "No Anthropic API key configured. Click ⚙ Settings to add your key.",
+            "message": (
+                f"Claude Code CLI not found at '{CLAUDE_BIN}'.\n"
+                "Install Claude Code: npm install -g @anthropic-ai/claude-code\n"
+                "Or add an Anthropic API key in ⚙ Settings."
+            ),
         })
-        return
+    except Exception as exc:
+        await ws.send_json({"type": "error", "message": f"CLI error: {exc}"})
+
+
+# ── Claude API mode (requires API key) ────────────────────────────────────────
+async def _run_claude_api(ws: WebSocket, session_id: str) -> None:
+    """Use Anthropic SDK with streaming and tool use — requires API key."""
 
     conversation = _sessions.setdefault(session_id, [])
 
@@ -317,6 +422,14 @@ async def _run_claude(ws: WebSocket, session_id: str) -> None:
         _sessions[session_id] = conversation
 
 
+# ── Router: picks API mode or CLI mode automatically ──────────────────────────
+async def _run_claude(ws: WebSocket, session_id: str) -> None:
+    if _client:
+        await _run_claude_api(ws, session_id)
+    else:
+        await _run_claude_cli(ws, session_id)
+
+
 # ── FastAPI app ────────────────────────────────────────────────────────────────
 app = FastAPI(title="PROMET Web UI")
 
@@ -331,8 +444,13 @@ async def root() -> HTMLResponse:
 
 @app.get("/api/config")
 async def api_get_config():
+    has_key = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+    cli_found = bool(shutil.which(CLAUDE_BIN) or Path(CLAUDE_BIN).exists())
     return {
-        "has_api_key": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip()),
+        "has_api_key": has_key,
+        "mode": "api" if has_key else ("cli" if cli_found else "none"),
+        "claude_bin": CLAUDE_BIN,
+        "cli_found": cli_found,
         "model": MODEL,
         "shell": SHELL,
         "platform": sys.platform,

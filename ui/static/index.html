@@ -94,9 +94,14 @@
       <button class="modal-close" id="settings-close">×</button>
     </div>
     <div class="modal-body">
-      <label class="field-label">Anthropic API Key</label>
+
+      <div id="mode-info" class="field-hint" style="margin-bottom:12px;padding:8px 10px;background:var(--bg3);border-radius:6px;border:1px solid var(--border)">
+        Checking mode…
+      </div>
+
+      <label class="field-label">Anthropic API Key <span style="color:var(--text3);font-weight:400">(اختياري إذا كان Claude Code مثبّتاً)</span></label>
       <div class="field-row">
-        <input type="password" id="api-key-input" placeholder="sk-ant-…" autocomplete="off" />
+        <input type="password" id="api-key-input" placeholder="sk-ant-… (اتركه فارغاً لاستخدام CLI)" autocomplete="off" />
         <button class="btn-primary" id="api-key-save">Save</button>
       </div>
       <div id="api-key-status" class="field-hint"></div>
