@@ -459,15 +459,34 @@ async def api_get_config():
 
 @app.post("/api/config")
 async def api_set_config(data: dict):
-    global _client
-    key = data.get("api_key", "").strip()
-    if not key:
-        raise HTTPException(400, "api_key is required")
-    os.environ["ANTHROPIC_API_KEY"] = key
-    _client = anthropic.AsyncAnthropic(api_key=key)
+    global _client, CLAUDE_BIN
     env_path = Path(__file__).parent / ".env"
-    env_path.write_text(f"ANTHROPIC_API_KEY={key}\n", encoding="utf-8")
-    return {"status": "ok"}
+
+    # Load existing .env lines (preserve other keys)
+    env_lines: dict[str, str] = {}
+    if env_path.exists():
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.startswith("#"):
+                k, _, v = line.partition("=")
+                env_lines[k.strip()] = v.strip()
+
+    key = data.get("api_key", "").strip()
+    if key:
+        os.environ["ANTHROPIC_API_KEY"] = key
+        _client = anthropic.AsyncAnthropic(api_key=key)
+        env_lines["ANTHROPIC_API_KEY"] = key
+
+    claude_bin = data.get("claude_bin", "").strip()
+    if claude_bin:
+        os.environ["PROMET_CLAUDE_BIN"] = claude_bin
+        CLAUDE_BIN = claude_bin
+        env_lines["PROMET_CLAUDE_BIN"] = claude_bin
+
+    env_path.write_text(
+        "\n".join(f"{k}={v}" for k, v in env_lines.items()) + "\n",
+        encoding="utf-8"
+    )
+    return {"status": "ok", "mode": "api" if _client else "cli"}
 
 
 @app.post("/api/upload")

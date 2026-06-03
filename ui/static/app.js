@@ -393,6 +393,12 @@ async function loadConfig() {
     const modelInput = document.getElementById('model-input');
     if (cfg.model) modelInput.value = cfg.model;
 
+    // Fill claude bin path if known
+    if (cfg.claude_bin) {
+      const binInput = document.getElementById('claude-bin-input');
+      if (binInput && !binInput.value) binInput.value = cfg.claude_bin;
+    }
+
     // Mode badge in header
     const logoSub = document.querySelector('.logo-sub');
     if (logoSub) {
@@ -428,6 +434,26 @@ async function loadConfig() {
       document.getElementById('settings-overlay').classList.remove('hidden');
     }
   } catch { /* ignore */ }
+}
+
+async function saveClaudeBin() {
+  const bin = document.getElementById('claude-bin-input').value.trim();
+  if (!bin) return;
+  const hint = document.getElementById('mode-info');
+  try {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ claude_bin: bin }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    hint.textContent = `✓ Claude CLI path saved: ${bin}`;
+    hint.className = 'field-hint ok';
+    setTimeout(() => { loadConfig(); }, 500);
+  } catch (e) {
+    hint.textContent = `✗ ${e.message}`;
+    hint.className = 'field-hint err';
+  }
 }
 
 async function saveApiKey() {
@@ -503,6 +529,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('api-key-save').addEventListener('click', saveApiKey);
   document.getElementById('api-key-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') saveApiKey();
+  });
+
+  // Claude CLI path save
+  document.getElementById('claude-bin-save').addEventListener('click', saveClaudeBin);
+  document.getElementById('claude-bin-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveClaudeBin();
   });
 
   // Close modal on backdrop click

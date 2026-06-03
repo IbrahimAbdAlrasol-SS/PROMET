@@ -106,9 +106,12 @@
       </div>
       <div id="api-key-status" class="field-hint"></div>
 
-      <label class="field-label mt">Shell</label>
-      <input type="text" id="shell-input" placeholder="bash" value="bash" />
-      <p class="field-hint">e.g. <code>bash</code>, <code>C:/Program Files/Git/bin/bash.exe</code></p>
+      <label class="field-label mt">Claude Code CLI Path</label>
+      <div class="field-row">
+        <input type="text" id="claude-bin-input" placeholder="اتركه فارغاً للكشف التلقائي" />
+        <button class="btn-primary" id="claude-bin-save">Save</button>
+      </div>
+      <p class="field-hint">شغّل <code>where claude</code> في CMD للحصول على المسار</p>
 
       <label class="field-label mt">Model</label>
       <input type="text" id="model-input" placeholder="claude-opus-4-8" value="claude-opus-4-8" />
