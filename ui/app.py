@@ -22,10 +22,32 @@ from fastapi.staticfiles import StaticFiles
 load_dotenv(Path(__file__).parent / ".env")
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-MODEL         = os.environ.get("PROMET_MODEL", "claude-opus-4-8")
-MAX_TOKENS    = int(os.environ.get("PROMET_MAX_TOKENS", "8192"))
-SHELL         = os.environ.get("PROMET_SHELL", "bash")
-PORT          = int(os.environ.get("PORT", "8765"))
+MODEL      = os.environ.get("PROMET_MODEL", "claude-opus-4-8")
+MAX_TOKENS = int(os.environ.get("PROMET_MAX_TOKENS", "8192"))
+PORT       = int(os.environ.get("PORT", "8765"))
+
+def _detect_shell() -> str:
+    """Auto-detect the best shell on this OS."""
+    forced = os.environ.get("PROMET_SHELL", "").strip()
+    if forced:
+        return forced
+    if sys.platform != "win32":
+        return "bash"
+    # Windows: look for Git Bash in common locations
+    candidates = [
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\bin\bash.exe",
+        r"C:\Users\%s\scoop\apps\git\current\bin\bash.exe" % os.environ.get("USERNAME", ""),
+        r"C:\msys64\usr\bin\bash.exe",
+        r"C:\cygwin64\bin\bash.exe",
+    ]
+    for p in candidates:
+        if Path(p).exists():
+            return p
+    # Last resort: cmd.exe
+    return "cmd.exe"
+
+SHELL = _detect_shell()
 PROMPTS_DIR   = Path(__file__).parent.parent          # repo root with *.md files
 UPLOAD_DIR    = Path(tempfile.gettempdir()) / "promet-uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
@@ -141,9 +163,11 @@ _sessions: dict[str, list] = {}
 # ── Tool executors ─────────────────────────────────────────────────────────────
 async def _exec_bash(ws: WebSocket, command: str, timeout: int = 120) -> str:
     timeout = min(max(timeout, 5), 600)
+    # cmd.exe uses /c instead of -c
+    shell_flag = "/c" if SHELL.lower().endswith("cmd.exe") else "-c"
     try:
         proc = await asyncio.create_subprocess_exec(
-            SHELL, "-c", command,
+            SHELL, shell_flag, command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
@@ -311,6 +335,7 @@ async def api_get_config():
         "has_api_key": bool(os.environ.get("ANTHROPIC_API_KEY", "").strip()),
         "model": MODEL,
         "shell": SHELL,
+        "platform": sys.platform,
     }
 
 
@@ -374,6 +399,9 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
 
 
 if __name__ == "__main__":
-    print(f"PROMET Web UI → http://localhost:{PORT}")
-    print(f"Shell: {SHELL}  |  Model: {MODEL}")
+    print(f"\n  PROMET Web UI → http://localhost:{PORT}")
+    print(f"  Shell   : {SHELL}")
+    print(f"  Model   : {MODEL}")
+    print(f"  Platform: {sys.platform}")
+    print(f"  Uploads : {UPLOAD_DIR}\n")
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")

@@ -386,6 +386,21 @@ async function loadConfig() {
   try {
     const res = await fetch('/api/config');
     const cfg = await res.json();
+
+    // Show active shell in settings
+    const shellInput = document.getElementById('shell-input');
+    if (cfg.shell) shellInput.value = cfg.shell;
+
+    const modelInput = document.getElementById('model-input');
+    if (cfg.model) modelInput.value = cfg.model;
+
+    // Show shell info in header subtitle
+    const logoSub = document.querySelector('.logo-sub');
+    if (logoSub && cfg.shell) {
+      const shellName = cfg.shell.split(/[/\\]/).pop().replace('.exe','');
+      logoSub.textContent = `Android RE · ${shellName}`;
+    }
+
     if (!cfg.has_api_key) {
       document.getElementById('settings-overlay').classList.remove('hidden');
     }
