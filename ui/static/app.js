@@ -390,18 +390,41 @@ async function loadConfig() {
     // Show active shell in settings
     const shellInput = document.getElementById('shell-input');
     if (cfg.shell) shellInput.value = cfg.shell;
-
     const modelInput = document.getElementById('model-input');
     if (cfg.model) modelInput.value = cfg.model;
 
-    // Show shell info in header subtitle
+    // Mode badge in header
     const logoSub = document.querySelector('.logo-sub');
-    if (logoSub && cfg.shell) {
-      const shellName = cfg.shell.split(/[/\\]/).pop().replace('.exe','');
-      logoSub.textContent = `Android RE · ${shellName}`;
+    if (logoSub) {
+      if (cfg.mode === 'api') {
+        logoSub.textContent = 'Android RE · API';
+        logoSub.style.color = 'var(--accent)';
+      } else if (cfg.mode === 'cli') {
+        logoSub.textContent = 'Android RE · CLI ✓';
+        logoSub.style.color = '#60a5fa';
+      } else {
+        logoSub.textContent = 'Android RE · Setup needed';
+        logoSub.style.color = 'var(--warn)';
+      }
     }
 
-    if (!cfg.has_api_key) {
+    // Mode info inside settings modal
+    const modeInfo = document.getElementById('mode-info');
+    if (modeInfo) {
+      if (cfg.mode === 'api') {
+        modeInfo.textContent = '✓ Using Anthropic API (API key found)';
+        modeInfo.className = 'field-hint ok';
+      } else if (cfg.mode === 'cli') {
+        modeInfo.textContent = `✓ Using Claude Code CLI — no API key needed (${cfg.claude_bin})`;
+        modeInfo.className = 'field-hint ok';
+      } else {
+        modeInfo.textContent = '✗ No API key and Claude Code CLI not found';
+        modeInfo.className = 'field-hint err';
+      }
+    }
+
+    // Only force open settings if nothing works
+    if (cfg.mode === 'none') {
       document.getElementById('settings-overlay').classList.remove('hidden');
     }
   } catch { /* ignore */ }
