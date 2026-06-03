@@ -1,0 +1,7 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+anthropic>=0.40.0
+python-multipart==0.0.20
+aiofiles==24.1.0
+python-dotenv==1.0.1
+websockets>=13.0
