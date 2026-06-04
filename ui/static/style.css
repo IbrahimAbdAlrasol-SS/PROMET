@@ -557,6 +557,22 @@ input:focus { border-color: var(--border2); }
 }
 .btn-primary:hover { background: #2ef078; }
 
+.btn-secondary {
+  background: var(--bg4);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  color: var(--text2);
+  font-weight: 500;
+  font-size: 13px;
+  padding: 8px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.btn-secondary:hover { background: var(--bg3); color: var(--text); }
+.cli-ok   { color: var(--accent); }
+.cli-fail { color: var(--err); }
+
 /* ── Error banner ─────────────────────────────────────────────────────────── */
 .error-msg {
   background: rgba(248,113,113,.08);

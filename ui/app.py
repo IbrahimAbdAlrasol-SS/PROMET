@@ -250,49 +250,45 @@ async def _run_claude_cli(ws: WebSocket, session_id: str) -> None:
     if not conversation:
         return
 
-    # Build prompt: system instructions + conversation history
-    system_block = (
-        "You are PROMET, an expert Android security researcher.\n"
-        "Follow the phased workflow in AGENTS.md and WORKFLOW.md in your working directory.\n"
-        "Use bash tool to run real commands on this machine. Never mock or simulate output.\n"
-        "Announce each phase you enter, e.g. '## Phase 3: Static Triage'.\n"
-        "Write findings to workspace incrementally.\n\n"
-    )
-
-    history_lines = []
-    for m in conversation[:-1]:
-        role = "User" if m["role"] == "user" else "Assistant"
-        body = m["content"] if isinstance(m["content"], str) else json.dumps(m["content"])
-        history_lines.append(f"{role}: {body}")
-
+    # Build prompt from conversation history
     last_msg = conversation[-1]["content"] if conversation else ""
-    sep = "\n---\n" if history_lines else ""
-    full_prompt = system_block + "\n".join(history_lines) + sep + f"User: {last_msg}"
+    history_parts: list[str] = []
+    for m in conversation[:-1]:
+        role = "Human" if m["role"] == "user" else "Assistant"
+        body = m["content"] if isinstance(m["content"], str) else json.dumps(m["content"])
+        history_parts.append(f"{role}: {body}")
 
-    cmd = [
-        CLAUDE_BIN,
-        "--print",
-        "--dangerously-skip-permissions",
-        "--allowedTools", "Bash,Read,Write,Edit,Glob,Grep",
-        full_prompt,
-    ]
+    full_prompt = ("\n\n".join(history_parts) + f"\n\nHuman: {last_msg}") if history_parts else last_msg
+
+    # On Windows, .cmd files must be invoked through cmd.exe
+    if sys.platform == "win32":
+        cmd = ["cmd.exe", "/c", CLAUDE_BIN, "--print", "--dangerously-skip-permissions"]
+    else:
+        cmd = [CLAUDE_BIN, "--print", "--dangerously-skip-permissions"]
 
     try:
         await ws.send_json({"type": "tool_start", "id": "cli-session", "name": "claude-cli"})
-        await ws.send_json({"type": "tool_exec",  "id": "cli-session", "name": "claude-cli",
-                            "input": {"command": f"claude --print [prompt {len(full_prompt)} chars]"}})
+        await ws.send_json({"type": "tool_exec", "id": "cli-session", "name": "claude-cli",
+                            "input": {"command": f"{CLAUDE_BIN} --print [prompt {len(full_prompt)} chars via stdin]"}})
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
+            stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.PIPE,
             cwd=str(PROMPTS_DIR),
         )
+
+        # Feed prompt via stdin then close it so claude knows input is done
+        if proc.stdin:
+            proc.stdin.write(full_prompt.encode("utf-8", errors="replace"))
+            await proc.stdin.drain()
+            proc.stdin.close()
 
         chunks: list[str] = []
         phase_sent: set[int] = set()
 
-        async def _drain():
+        async def _drain_stdout():
             async for raw in proc.stdout:
                 line = raw.decode("utf-8", errors="replace")
                 chunks.append(line)
@@ -302,8 +298,17 @@ async def _run_claude_cli(ws: WebSocket, session_id: str) -> None:
                     phase_sent.add(phase)
                     await ws.send_json({"type": "phase", "number": phase})
 
+        async def _drain_stderr():
+            async for raw in proc.stderr:
+                line = raw.decode("utf-8", errors="replace").rstrip()
+                if line:
+                    await ws.send_json({"type": "tool_output", "content": f"[stderr] {line}\n"})
+
         try:
-            await asyncio.wait_for(asyncio.gather(_drain(), proc.wait()), timeout=600)
+            await asyncio.wait_for(
+                asyncio.gather(_drain_stdout(), _drain_stderr(), proc.wait()),
+                timeout=600,
+            )
         except asyncio.TimeoutError:
             proc.kill()
             await ws.send_json({"type": "tool_output", "content": "\n[Session timeout — 10 minutes]\n"})
@@ -487,6 +492,32 @@ async def api_set_config(data: dict):
         encoding="utf-8"
     )
     return {"status": "ok", "mode": "api" if _client else "cli"}
+
+
+@app.get("/api/test-cli")
+async def api_test_cli():
+    """Quick smoke-test: run `claude --version` and return the output."""
+    if sys.platform == "win32":
+        cmd = ["cmd.exe", "/c", CLAUDE_BIN, "--version"]
+    else:
+        cmd = [CLAUDE_BIN, "--version"]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+        except asyncio.TimeoutError:
+            proc.kill()
+            return {"ok": False, "output": "timeout after 15s", "claude_bin": CLAUDE_BIN}
+        output = stdout.decode("utf-8", errors="replace").strip()
+        return {"ok": proc.returncode == 0, "output": output, "claude_bin": CLAUDE_BIN, "returncode": proc.returncode}
+    except FileNotFoundError:
+        return {"ok": False, "output": f"not found: {CLAUDE_BIN}", "claude_bin": CLAUDE_BIN}
+    except Exception as exc:
+        return {"ok": False, "output": str(exc), "claude_bin": CLAUDE_BIN}
 
 
 @app.post("/api/upload")
